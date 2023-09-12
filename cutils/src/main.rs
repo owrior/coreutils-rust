@@ -1,6 +1,6 @@
 use clap::Parser;
-use std::env;
-use std::fs;
+use fsio;
+use std::{env, error, fs, path};
 
 #[derive(Parser)]
 struct EchoCli {
@@ -18,7 +18,7 @@ struct CatCli {
 #[derive(Parser)]
 struct LsCli {
     function: String,
-    dir: String,
+    dir: Option<String>,
 }
 
 fn echo(message: &str) -> () {
@@ -34,8 +34,32 @@ fn cat(file1: &str, file2: &str) -> String {
     file1_contents
 }
 
-fn ls(dir: &str) -> () {
-    let dir = env::current_dir().unwrap();
+fn ls(dir: &Option<String>) -> Result<(), Box<dyn error::Error>> {
+    let current_dir = env::current_dir().unwrap();
+    let path = match dir {
+        Some(dir) => path::Path::new(dir),
+        None => current_dir.as_path(),
+    };
+
+    let entries = fs::read_dir(path)?;
+
+    let _ = entries
+        .into_iter()
+        .filter_map(|entry| {
+            let path = entry.ok()?.path();
+
+            let basename;
+            let name = if path.is_file() {
+                path.file_name()?.to_str()
+            } else {
+                basename = fsio::path::get_basename(&path);
+                basename.as_deref()
+            };
+            println!("{}", name?);
+            Some(name.unwrap().to_owned())
+        })
+        .collect::<Vec<_>>();
+    Ok(())
 }
 
 fn main() {
@@ -53,9 +77,9 @@ fn main() {
         let file2 = args.file2;
         let result = cat(&file1, &file2);
         println!("{result}");
-    } else if func == "cat" {
+    } else if func == "ls" {
         let args = LsCli::parse();
         let dir = args.dir;
-        ls(&dir);
+        let _ = ls(&dir);
     }
 }
