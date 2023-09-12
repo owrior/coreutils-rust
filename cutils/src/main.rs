@@ -1,6 +1,7 @@
 use clap::Parser;
 use fsio;
 use std::{env, error, fs, path};
+use walkdir;
 
 #[derive(Parser)]
 struct EchoCli {
@@ -18,6 +19,20 @@ struct CatCli {
 #[derive(Parser)]
 struct LsCli {
     function: String,
+    dir: Option<String>,
+}
+
+#[derive(Parser)]
+struct FindCli {
+    function: String,
+    pattern: String,
+    dir: Option<String>,
+}
+
+#[derive(Parser)]
+struct GrepCli {
+    function: String,
+    pattern: String,
     dir: Option<String>,
 }
 
@@ -62,6 +77,37 @@ fn ls(dir: &Option<String>) -> Result<(), Box<dyn error::Error>> {
     Ok(())
 }
 
+fn find(pattern: &str, dir: &Option<String>) -> Result<Vec<String>, Box<dyn error::Error>> {
+    let current_dir = env::current_dir().unwrap();
+    let path = match dir {
+        Some(dir) => path::Path::new(dir),
+        None => current_dir.as_path(),
+    };
+    let entries = walkdir::WalkDir::new(path);
+
+    let discovered_files = entries
+        .into_iter()
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let path = entry.path();
+            let result = if path.is_file() && path.file_name()?.to_str()?.contains(pattern) {
+                Some(path.to_str()?.to_owned())
+            } else {
+                None
+            };
+            result
+        })
+        .collect::<Vec<String>>();
+
+    for file in &discovered_files {
+        println!("{file}");
+    }
+
+    Ok(discovered_files)
+}
+
+fn grep(_pattern: &str, _dir: &Option<String>) -> () {}
+
 fn main() {
     let mut args = env::args();
 
@@ -81,5 +127,15 @@ fn main() {
         let args = LsCli::parse();
         let dir = args.dir;
         let _ = ls(&dir);
+    } else if func == "find" {
+        let args = FindCli::parse();
+        let pattern = args.pattern;
+        let dir = args.dir;
+        let _result = find(&pattern, &dir).unwrap();
+    } else if func == "grep" {
+        let args = GrepCli::parse();
+        let pattern = args.pattern;
+        let dir = args.dir;
+        grep(&pattern, &dir);
     }
 }
