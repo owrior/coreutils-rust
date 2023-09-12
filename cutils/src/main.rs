@@ -1,7 +1,12 @@
 use clap::Parser;
 use fsio;
-use std::{env, error, fs, path};
-use walkdir;
+use std::{
+    collections::HashMap,
+    env, error, fs,
+    io::{self, BufRead},
+    path,
+};
+use walkdir::{self, WalkDir};
 
 #[derive(Parser)]
 struct EchoCli {
@@ -78,7 +83,7 @@ fn ls(dir: &Option<String>) -> Result<(), Box<dyn error::Error>> {
 }
 
 fn find(pattern: &str, dir: &Option<String>) -> Result<Vec<String>, Box<dyn error::Error>> {
-    let current_dir = env::current_dir().unwrap();
+    let current_dir = env::current_dir()?;
     let path = match dir {
         Some(dir) => path::Path::new(dir),
         None => current_dir.as_path(),
@@ -106,7 +111,60 @@ fn find(pattern: &str, dir: &Option<String>) -> Result<Vec<String>, Box<dyn erro
     Ok(discovered_files)
 }
 
-fn grep(_pattern: &str, _dir: &Option<String>) -> () {}
+fn grep(pattern: &str, dir: &Option<String>) -> Result<Vec<String>, Box<dyn error::Error>> {
+    let current_dir = env::current_dir()?;
+    let path = match dir {
+        Some(dir) => path::Path::new(dir),
+        None => current_dir.as_path(),
+    };
+
+    let mut file_lines_mapping: HashMap<String, HashMap<usize, String>> = HashMap::new();
+    let mut lines_mapping: HashMap<usize, String> = HashMap::new();
+
+    let entries = WalkDir::new(path);
+
+    let discovered_files = entries
+        .into_iter()
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let path = entry.path();
+            let result = if path.is_file() {
+                let file = fs::File::open(path).unwrap();
+                let reader = io::BufReader::new(file);
+                let mut line_count: usize = 0;
+                lines_mapping = HashMap::new();
+                for line in reader.lines() {
+                    line_count += 1;
+                    let line = if let Ok(l) = line { l } else { break };
+
+                    if line.contains(pattern) {
+                        lines_mapping.insert(line_count, line);
+                    }
+                }
+                let result = if lines_mapping.is_empty() {
+                    None
+                } else {
+                    file_lines_mapping.insert(
+                        path.file_name()?.to_str()?.to_owned(),
+                        lines_mapping.to_owned(),
+                    );
+                    Some(path.file_name()?.to_str()?.to_owned())
+                };
+                result
+            } else {
+                None
+            };
+            result
+        })
+        .collect::<Vec<String>>();
+    for (file_name, lines_mapping) in file_lines_mapping {
+        println!("{file_name}");
+        for (line_number, content) in lines_mapping {
+            println!("\t{line_number}: {content}");
+        }
+    }
+    Ok(discovered_files)
+}
 
 fn main() {
     let mut args = env::args();
@@ -136,6 +194,6 @@ fn main() {
         let args = GrepCli::parse();
         let pattern = args.pattern;
         let dir = args.dir;
-        grep(&pattern, &dir);
+        let _result = grep(&pattern, &dir);
     }
 }
